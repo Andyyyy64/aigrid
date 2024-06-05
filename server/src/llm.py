@@ -1,7 +1,9 @@
 from openai import OpenAI
+from src.tools import get_tools_desc
 
 OAI_MODEL_NAME = "gpt-4o"
 OR_MODEL_NAME = "openai/gpt-4o"
+MAX_MSG_LEN = 8
 
 class Message:
     def __init__(self, role: str, content: str):
@@ -24,11 +26,27 @@ class UserMessage(Message):
 
 class BotMessage(Message):
     def __init__(self, content: str):
-        super().__init__("bot", content)
+        super().__init__("assistant", content)
         
 class SystemMessage(Message):
     def __init__(self, content: str):
         super().__init__("system", content)
+
+class ToolCall:
+    def __init__(self, tool_call_id: str, content: str):
+        self.tool_call_id = tool_call_id
+        self.content = content
+        
+    def to_dict(self):
+        return {
+            "name": self.tool_call_id,
+            "content": self.content,
+            "role": "function"
+        }
+        
+    @staticmethod
+    def from_dict(data: dict):
+        return ToolCall(data["tool_call_id"], data["content"])
 
 class LLM:
     client: OpenAI
@@ -49,12 +67,9 @@ class LLM:
         self.messages.append(message.to_dict()) 
         
     def inference(self):
-        response = self.client.chat.completions.create(
+        return self.client.chat.completions.create(
             model=self.model_name,
             messages=self.messages,
-            temperature=0,
-            stream=True
+            tools=get_tools_desc(),
+            temperature=0.0
         )
-        
-        return response
-        
