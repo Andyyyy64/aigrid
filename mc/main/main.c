@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
@@ -9,17 +12,18 @@
 #include "esp_http_client.h"
 #include "driver/gpio.h"
 
-static const char *TAG = "aircon";
-static const char *NTFY_URL = "http://ntfy.sh/aaasssuuu";
+static const char* TAG = "aircon";
 
-#define BLINK_GPIO 2
-#define EXAMPLE_ESP_WIFI_SSID "Buffalo-G-FF08"
-#define EXAMPLE_ESP_WIFI_PASS "haxwjsep4gyib"
 #define WIFI_CONNECTED_BIT BIT0
 #define WIFI_FAIL_BIT      BIT1
 
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
+
+const char* WIFI_SSID = "";
+const char* WIFI_PASS = "";
+
+const char* NTFY_URL = "";
 
 esp_err_t handle_http_event(esp_http_client_event_t *e) {
     switch(e->event_id) {
@@ -27,14 +31,7 @@ esp_err_t handle_http_event(esp_http_client_event_t *e) {
             if(e->data_len > 0) {
                 char *message = strndup((char *)e->data, e->data_len);
                 ESP_LOGI(TAG, "Received data: %s", message);
-
-                if(strstr(message, "on")) {
-                    gpio_set_level(BLINK_GPIO, 1);
-                } else {
-                    gpio_set_level(BLINK_GPIO, 0);
-                }
-
-                free(message);
+                //ESP_LOGI(TAG, "aa", message->id)
             }
             break;
         default:
@@ -44,20 +41,42 @@ esp_err_t handle_http_event(esp_http_client_event_t *e) {
 }
 
 void init_ntfy(void *p)  {
+    ESP_LOGI(TAG, "Initializing NTFY");
     esp_http_client_config_t config = {
         .url = NTFY_URL,
         .event_handler = handle_http_event,
     };
-
     esp_http_client_handle_t client = esp_http_client_init(&config);
-    esp_err_t err = esp_http_client_perform(client);
 
-    if(err == ESP_OK) {
-        ESP_LOGI(TAG, "HTTP GET Status = %d, content_length = %lld",
-            esp_http_client_get_status_code(client),
-            esp_http_client_get_content_length(client));
-    } else {
-        ESP_LOGE(TAG, "HTTP GET request failed: %s", esp_err_to_name(err));
+    // open the http connection
+    esp_err_t err = esp_http_client_open(client, 0);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
+        esp_http_client_cleanup(client);
+        vTaskDelete(NULL);
+        return;
+    }
+
+    // set headers
+    int content_length = esp_http_client_fetch_headers(client);
+
+    // read the stream
+    char buffer[1024];
+    while (1) {
+        int read_len = esp_http_client_read(client, buffer, sizeof(buffer) - 1);
+        if (read_len > 0) {
+            buffer[read_len] = 0;
+            ESP_LOGI(TAG, "Received data: %s", buffer);
+        } else if (read_len == 0) {
+            // No data read, continue
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        } else if (read_len == -ESP_ERR_HTTP_EAGAIN) {
+            // No data available yet, try again
+            vTaskDelay(100 / portTICK_PERIOD_MS);
+        } else {
+            ESP_LOGE(TAG, "HTTP read error: %d", read_len);
+            break;
+        }
     }
 
     esp_http_client_cleanup(client);
@@ -84,7 +103,13 @@ static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_
     }
 }
 
-void wifi_init_sta(void) {
+void wifi_init(void) {
+    // null check
+    if (WIFI_SSID == NULL || WIFI_PASS == NULL) {
+        ESP_LOGE(TAG, "WiFi SSID or Password not set in environment variables.");
+        return;
+    }
+
     s_wifi_event_group = xEventGroupCreate();
 
     ESP_ERROR_CHECK(esp_netif_init());
@@ -109,16 +134,19 @@ void wifi_init_sta(void) {
 
     wifi_config_t wifi_config = {
         .sta = {
-            .ssid = EXAMPLE_ESP_WIFI_SSID,
-            .password = EXAMPLE_ESP_WIFI_PASS,
+            .ssid = {0}, // Initialize with zeroes
+            .password = {0}, // Initialize with zeroes
             .threshold.authmode = WIFI_AUTH_WPA2_PSK,
-
             .pmf_cfg = {
                 .capable = true,
                 .required = false
             },
         },
     };
+
+    // Copy SSID and password into the structure
+    strncpy((char*)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
+    strncpy((char*)wifi_config.sta.password, WIFI_PASS, sizeof(wifi_config.sta.password) - 1);
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA) );
     ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
@@ -132,10 +160,10 @@ void wifi_init_sta(void) {
 
     if (bits & WIFI_CONNECTED_BIT) {
         ESP_LOGI(TAG, "connected to ap SSID:%s password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+                 WIFI_SSID, WIFI_PASS);
     } else if (bits & WIFI_FAIL_BIT) {
         ESP_LOGI(TAG, "Failed to connect to SSID:%s, password:%s",
-                 EXAMPLE_ESP_WIFI_SSID, EXAMPLE_ESP_WIFI_PASS);
+                 WIFI_SSID, WIFI_PASS);
     } else {
         ESP_LOGE(TAG, "UNEXPECTED EVENT");
     }
@@ -149,10 +177,10 @@ void app_main(void) {
     }
     ESP_ERROR_CHECK(ret);
 
-    wifi_init_sta();
+    wifi_init();
 
-    gpio_reset_pin(BLINK_GPIO);
-    gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
+    //gpio_reset_pin(BLINK_GPIO);
+    //gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
 
     xTaskCreate(init_ntfy, "init_ntfy", 8192, NULL, 5, NULL);
 }
