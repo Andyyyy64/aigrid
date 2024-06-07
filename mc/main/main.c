@@ -25,13 +25,12 @@ const char* WIFI_PASS = "";
 
 const char* NTFY_URL = "";
 
-esp_err_t handle_http_event(esp_http_client_event_t *e) {
+esp_err_t handle_http_stream(esp_http_client_event_t *e) {
     switch(e->event_id) {
         case HTTP_EVENT_ON_DATA:
             if(e->data_len > 0) {
                 char *message = strndup((char *)e->data, e->data_len);
                 ESP_LOGI(TAG, "Received data: %s", message);
-                //ESP_LOGI(TAG, "aa", message->id)
             }
             break;
         default:
@@ -40,11 +39,11 @@ esp_err_t handle_http_event(esp_http_client_event_t *e) {
     return ESP_OK;
 }
 
-void init_ntfy(void *p)  {
+void init_ntfy_stream(void *p)  {
     ESP_LOGI(TAG, "Initializing NTFY");
     esp_http_client_config_t config = {
         .url = NTFY_URL,
-        .event_handler = handle_http_event,
+        .event_handler = handle_http_stream,
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
@@ -56,9 +55,6 @@ void init_ntfy(void *p)  {
         vTaskDelete(NULL);
         return;
     }
-
-    // set headers
-    int content_length = esp_http_client_fetch_headers(client);
 
     // read the stream
     char buffer[1024];
@@ -144,7 +140,7 @@ void wifi_init(void) {
         },
     };
 
-    // Copy SSID and password into the structure
+    // copy ssid and password into the structure
     strncpy((char*)wifi_config.sta.ssid, WIFI_SSID, sizeof(wifi_config.sta.ssid) - 1);
     strncpy((char*)wifi_config.sta.password, WIFI_PASS, sizeof(wifi_config.sta.password) - 1);
 
@@ -175,12 +171,10 @@ void app_main(void) {
         ESP_ERROR_CHECK(nvs_flash_erase());
         ret = nvs_flash_init();
     }
+
     ESP_ERROR_CHECK(ret);
 
     wifi_init();
 
-    //gpio_reset_pin(BLINK_GPIO);
-    //gpio_set_direction(BLINK_GPIO, GPIO_MODE_OUTPUT);
-
-    xTaskCreate(init_ntfy, "init_ntfy", 8192, NULL, 5, NULL);
+    xTaskCreate(init_ntfy_stream, "init_ntfy_stream", 8192, NULL, 5, NULL);
 }
