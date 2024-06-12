@@ -20,23 +20,44 @@ static const char* TAG = "aircon";
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 
-const char* WIFI_SSID = "";
-const char* WIFI_PASS = "";
+const char* WIFI_SSID = "CNLab-wifi";
+const char* WIFI_PASS = "uoacnlab2023";
 
-const char* NTFY_URL = "";
+const char* NTFY_URL = "https://ntfy.sh/aigrid/json";
 
 esp_err_t handle_http_stream(esp_http_client_event_t *e) {
     switch(e->event_id) {
+        case HTTP_EVENT_ERROR:
+            ESP_LOGI(TAG, "HTTP_EVENT_ERROR");
+            break;
+        case HTTP_EVENT_ON_CONNECTED:
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_CONNECTED");
+            break;
+        case HTTP_EVENT_HEADER_SENT:
+            ESP_LOGI(TAG, "HTTP_EVENT_HEADER_SENT");
+            break;
+        case HTTP_EVENT_ON_HEADER:
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_HEADER, key=%s, value=%s", e->header_key, e->header_value);
+            break;
         case HTTP_EVENT_ON_DATA:
-            if(e->data_len > 0) {
+            if (e->data_len > 0) {
                 char *message = strndup((char *)e->data, e->data_len);
                 ESP_LOGI(TAG, "Received data: %s", message);
+                free(message);
             }
             break;
-        default:
+        case HTTP_EVENT_ON_FINISH:
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_FINISH");
             break;
-        }
+        case HTTP_EVENT_DISCONNECTED:
+            ESP_LOGI(TAG, "HTTP_EVENT_DISCONNECTED");
+            break;
+        case HTTP_EVENT_REDIRECT:
+            ESP_LOGI(TAG, "HTTP_EVENT_ON_REDIRECT");
+            break;
+    }
     return ESP_OK;
+
 }
 
 void init_ntfy_stream(void *p)  {
@@ -44,11 +65,17 @@ void init_ntfy_stream(void *p)  {
     esp_http_client_config_t config = {
         .url = NTFY_URL,
         .event_handler = handle_http_stream,
+        .buffer_size = 1024,
+        .user_agent = "esp32-client"
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
+    esp_http_client_set_method(client, HTTP_METHOD_GET);
+    esp_http_client_set_header(client, "Accept", "text/event-stream");
+
     // open the http connection
     esp_err_t err = esp_http_client_open(client, 0);
+    ESP_LOGI(TAG, "Opened HTTP connection");
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
         esp_http_client_cleanup(client);
@@ -65,10 +92,12 @@ void init_ntfy_stream(void *p)  {
             ESP_LOGI(TAG, "Received data: %s", buffer);
         } else if (read_len == 0) {
             // No data read, continue
-            vTaskDelay(100 / portTICK_PERIOD_MS);
+            ESP_LOGI(TAG, "No data read");
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         } else if (read_len == -ESP_ERR_HTTP_EAGAIN) {
             // No data available yet, try again
-            vTaskDelay(100 / portTICK_PERIOD_MS);
+            ESP_LOGI(TAG, "No data available yet");
+            vTaskDelay(1000 / portTICK_PERIOD_MS);
         } else {
             ESP_LOGE(TAG, "HTTP read error: %d", read_len);
             break;
