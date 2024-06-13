@@ -20,8 +20,8 @@ static const char* TAG = "aircon";
 static EventGroupHandle_t s_wifi_event_group;
 static int s_retry_num = 0;
 
-const char* WIFI_SSID = "CNLab-wifi";
-const char* WIFI_PASS = "uoacnlab2023";
+const char* WIFI_SSID = "";
+const char* WIFI_PASS = "";
 
 const char* NTFY_URL = "https://ntfy.sh/aigrid/json";
 
@@ -70,13 +70,15 @@ void init_ntfy_stream(void *p)  {
     };
     esp_http_client_handle_t client = esp_http_client_init(&config);
 
+    // set the method and headers for stream
     esp_http_client_set_method(client, HTTP_METHOD_GET);
     esp_http_client_set_header(client, "Accept", "text/event-stream");
 
     // open the http connection
     esp_err_t err = esp_http_client_open(client, 0);
-    ESP_LOGI(TAG, "Opened HTTP connection");
-    if (err != ESP_OK) {
+    if(err == ESP_OK) {
+        esp_http_client_fetch_headers(client); // fetch the headers
+    } else {
         ESP_LOGE(TAG, "Failed to open HTTP connection: %s", esp_err_to_name(err));
         esp_http_client_cleanup(client);
         vTaskDelete(NULL);
@@ -96,7 +98,6 @@ void init_ntfy_stream(void *p)  {
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         } else if (read_len == -ESP_ERR_HTTP_EAGAIN) {
             // No data available yet, try again
-            ESP_LOGI(TAG, "No data available yet");
             vTaskDelay(1000 / portTICK_PERIOD_MS);
         } else {
             ESP_LOGE(TAG, "HTTP read error: %d", read_len);
